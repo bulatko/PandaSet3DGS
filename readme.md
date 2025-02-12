@@ -3,11 +3,9 @@
 ```
 PandaSet3DGS/
     - gaussian-splatting/
-    - scripts/
-        - converter.py
-        - visualizer.py
-    - convert.py
-    - visualize.py
+    - data/
+        - base.py
+        - pandaset.py
     - readme.md
 ```
 
