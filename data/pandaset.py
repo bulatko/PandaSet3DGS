@@ -1,14 +1,7 @@
 from .base import Scene, Dataset, PointCloud, Frame
 from pandaset import PandaSet, Scene as PSScene
 
-class PandaSetDataset(Dataset):
-    def __init__(self, path: str):
-        self.loader = PandaSet(path)
-        self.data = self.loader.scenes
-    
-    def __getitem__(self, idx) -> Scene:
-        # TODO: return loaded scene by index
-        pass
+
 
 
 class PandaSetScene(Scene):
@@ -26,3 +19,11 @@ class PandaSetScene(Scene):
         # TODO: convert each frame to Frames class and apply mask
         pass
 
+class PandaSetDataset(Dataset):
+    def __init__(self, path: str):
+        self.loader = PandaSet(path)
+        self.data = self.loader.scenes
+    
+    def __getitem__(self, idx) -> PandaSetScene:
+        # TODO: return loaded scene by index
+        pass
