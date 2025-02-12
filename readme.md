@@ -11,13 +11,13 @@ PandaSet3DGS/
 
 ## How to use:
 
-```
-python convert.py --input /path/to/pandaset/frames --output /path/to/processed
-```
+```(python)
+path_to_pandaset = '/path/to/pandaset'
+path_to_output = '/path/to/output'
 
+dataset = PandaSetDataset(path_to_pandaset)
+scene = dataset[0]
+
+scene.make_reconstruction()
+scene.export(path_to_output)
 ```
-python gaussian-splatting/train.py -s /path/to/processed -o /path/to/output
-```
-
-
-
