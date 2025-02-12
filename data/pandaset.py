@@ -6,17 +6,20 @@ from pandaset import PandaSet, Scene as PSScene
 
 class PandaSetScene(Scene):
     def __init__(self, scene: PSScene):
-        # TODO: load scene
-        # TODO: load frames
-        # TODO: load points
-        # TODO: load masks
+        # TODO: define scene
         self.scene = scene
-        self.frames = ...
-        self.points = ...
 
+    def filter_points(self):
+        # TODO: filter points by mask
+        pass
     def load_data(self):
         # TODO: load data (points, frames) from scene
         # TODO: convert each frame to Frames class and apply mask
+        self.points = ...
+        self.frames = ...
+        self.masks = ...
+        self.cameras = ...
+
         pass
 
 class PandaSetDataset(Dataset):
