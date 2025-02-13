@@ -20,8 +20,8 @@ class PandaSetScene(Scene):
         # TODO: convert each frame to Frames class and apply mask
         self.points = ...
         self.frames = ...
-        self.masks = self.make_masks()
         self.cameras = ...
+        self.masks = self.make_masks()
 
         self.filter_points()
 
