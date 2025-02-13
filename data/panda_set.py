@@ -4,9 +4,9 @@ from pandaset.sequence import Sequence
 import numpy as np
 
 class PandaSetScene(Scene):
-    def __init__(self, sequence: Sequence):
+    def __init__(self, path_to_sequence: str):
         # TODO: define scene
-        self.sequence = sequence
+        self.path_to_sequence = path_to_sequence
 
     def filter_points(self):
         # TODO: filter 3D points of dynamic objects and ego vehicle
