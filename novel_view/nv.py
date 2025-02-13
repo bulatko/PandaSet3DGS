@@ -1,13 +1,19 @@
-from pycolmap import Image
-from data import Scene
+from pycolmap import Image, Reconstruction, Camera
 import numpy as np
 from typing import List
 
-
 class NovelViewGenerator:
-    def __init__(self, scene: Scene):
-        self.scene = scene
-        self.frames : List[Image] = scene.frames
+    def __init__(self, reconstruction: Reconstruction):
+        self.reconstruction = reconstruction
+        self.frames : List[Image] = reconstruction.images
+        self.cameras : List[Camera] = reconstruction.cameras
+        
+    def transform_camera_frames(self, camera_id: int, transform: np.ndarray) -> List[Image]:
+        # TODO: get images with camera_id and apply same transform to them
+        images = [image for image in self.frames if image.camera_id == camera_id]
+        new_images = [self.apply_transform(image, transform, ...) for image in images]
+
+        return new_images
 
     def transform_frame(self, 
                         frame: Image, 
@@ -21,17 +27,8 @@ class NovelViewGenerator:
         frame = Image(new_frame_name, frame.points2D, new_transform, frame.camera_id, new_frame_id)
         return frame
 
-    def apply_transforms_to_frame(self, frame: Image, transforms: np.ndarray, ids: List[int], names: List[str]) -> List[Image]:
-        # TODO: transform frames
-        
-        assert len(transforms) == len(ids) == len(names)
-
-        new_frames = []
-        for i in range(len(transforms)):
-            new_frames.append(self.transform_frame(frame, transforms[i], ids[i], names[i]))
-
-        return new_frames
     
-    def export_data(self, path_to_data: str, frames: List[Image]):
-        # TODO: export data of new frames to colmap-style formated directory
+    def export_data(self, images: List[Image]):
+        # TODO: export data of new frames in colmap-style formated directory
+
         pass
