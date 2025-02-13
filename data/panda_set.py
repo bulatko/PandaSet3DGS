@@ -1,30 +1,15 @@
 from base import Scene, CameraData, FrameData
-from pandaset import DataSet
-from pandaset.sequence import Sequence
 import numpy as np
-
 import pycolmap
-
 import json
 from scipy.spatial import KDTree
-
 import PIL
-
 import pickle
-
 import typing as tp
-
 import trimesh
-
 from pathlib import Path
-
 from pandas import DataFrame
-
 import utils
-
-import logging
-
-from collections import defaultdict
 
 
 def load_json(path: Path) -> tp.Any:
@@ -166,6 +151,21 @@ class PandaSetScene(Scene):
 
         self.points = self.points[keep_mask]
 
+    def _delete_ego_points(
+            self,
+            points: np.ndarray,
+            moment_id: int,
+            radius_x: float = 1,
+            radius_y: float = 1,
+            radius_z1: float = 0.5,
+            radius_z2: float = 2,
+    ):
+        pose = load_json(self.scene_path / 'lidar' / 'poses.json')[moment_id]
+        (lidar_x, lidar_y, lidar_z) = np.array([pose['position'][key] for key in ['x', 'y', 'z']])
+        return (points[:, 0] <= lidar_x - radius_x) | (points[:, 0] >= lidar_x + radius_x) | (
+                points[:, 1] <= lidar_y - radius_y) | (points[:, 1] >= lidar_y + radius_y) | (
+                points[:, 2] <= lidar_z - radius_z1) | (points[:, 2] >= lidar_z + radius_z2)
+
     def __init__(self,
                  scene_path: Path | str,
                  masks_output_path: tp.Optional[Path | str] = None,
@@ -253,9 +253,17 @@ class PandaSetScene(Scene):
                     current_cuboids
                 )
 
+            points_mask = np.logical_and(
+                outside_cuboids_mask,
+                self._delete_ego_points(
+                    points=current_points,
+                    moment_id=moment_id
+                )
+            )
+
             if self.points is None:
-                self.points = current_points[outside_cuboids_mask]
+                self.points = current_points[points_mask]
             else:
-                self.points = np.concatenate((self.points, current_points[outside_cuboids_mask]), axis=0)
+                self.points = np.concatenate((self.points, current_points[points_mask]), axis=0)
 
         self._zip_points(points_radius)
