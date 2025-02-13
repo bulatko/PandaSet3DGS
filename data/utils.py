@@ -4,6 +4,9 @@ import numpy as np
 import pycolmap
 
 import trimesh
+import cv2
+
+from scipy.spatial import ConvexHull
 
 
 def vectorized_project_points(points: np.ndarray, image: pycolmap.Image) -> tp.Tuple[np.ndarray, np.ndarray]:
@@ -167,13 +170,21 @@ def get_cuboid_trimesh(
     return cuboid
 
 
-def mark_dynamic_object_on_mask(points2d: np.ndarray, output_mask: np.ndarray) -> None:
+def mark_dynamic_object_on_mask(points2d_groups: list[np.ndarray], output_mask: np.ndarray) -> None:
     """
-    Marking dynamic object on an output_mask
+    Marking dynamic objects on an output_mask.
 
     Args:
-        points2d: numpy array of shape (n_points, 2), which contains projected on image float points of dynamic object
-        output_mask: numpy array of shape (image_height, image_width), place to be written mask
-
+        points2d_groups: list of numpy arrays of shape (n_points, 2), containing projected points of dynamic objects.
+        output_mask: numpy array of shape (image_height, image_width), where the mask will be written.
     """
-    raise NotImplementedError
+    temp_mask = output_mask if output_mask.dtype == np.int8 else output_mask.astype(np.int8)
+    for points2d in points2d_groups:
+        try:
+            hull = ConvexHull(points2d)
+            cv2.fillPoly(temp_mask, [points2d[hull.vertices]], 1)
+        except:
+            pass
+    if output_mask.dtype != np.int8:
+        output_mask[:] = temp_mask.astype(output_mask.dtype)
+
