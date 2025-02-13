@@ -28,9 +28,10 @@ class CameraData:
     def params(self):
         return [self.fx, self.fy, self.cx, self.cy]
 
-    def build(self, camera_id: int) -> pycolmap.Camera:
+    def build(self, camera_id: int, model: str = "PINHOLE") -> pycolmap.Camera:
         return pycolmap.Camera(
             camera_id=camera_id,
+            model=model,
             width=self.width,
             height=self.height,
             params=self.params
@@ -39,16 +40,28 @@ class CameraData:
 
 @dataclass
 class FrameData:
+    moment_id: int
+    camera_path: Path
     pose: pycolmap.Rigid3d
-    camera_name: str
-    image_path: Path
+
+    @property
+    def camera_name(self) -> str:
+        return self.camera_path.name
+
+    @property
+    def image_path(self) -> Path:
+        return self.camera_path / f'{self.moment_id:02d}.jpg'
+
+    @property
+    def image_name(self):
+        return "{}_{}".format(self.camera_path.name, self.image_path.name)
 
     def build(self, image_id, camera_id) -> pycolmap.Image:
         return pycolmap.Image(
             image_id=image_id,
             camera_id=camera_id,
             cam_from_world=self.pose,
-            name="{}_{}".format(camera_id, self.image_path.name)
+            name=self.image_name
         )
 
 
@@ -78,6 +91,8 @@ class Scene(ABC):
         for image_id, frame_data in enumerate(frames):
             camera_id = cameras_by_names[frame_data.camera_name]
             self.reconstruction.add_image(frame_data.build(image_id, camera_id))
+
+
 
     def export(self, path: str, as_text: bool) -> None:
         if isinstance(path, str):

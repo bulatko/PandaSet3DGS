@@ -8,6 +8,10 @@ import pycolmap
 import trimesh
 from numpy import ndarray, dtype
 
+import cv2
+
+from scipy.spatial import ConvexHull
+
 
 def vectorized_project_points(points: np.ndarray, image: pycolmap.Image) -> tp.Tuple[np.ndarray, np.ndarray]:
     """
@@ -179,7 +183,12 @@ def mark_dynamic_object_on_mask(points2d: np.ndarray, output_mask: np.ndarray) -
         output_mask: numpy array of shape (image_height, image_width), place to be written mask
 
     """
-    raise NotImplementedError
+    assert output_mask.dtype == np.uint8
+    try:
+        hull = ConvexHull(points2d)
+        cv2.fillPoly(output_mask, [points2d[hull.vertices]], 1)
+    except:
+        pass
 
 
 def filter_points_by_cuboids(
@@ -197,12 +206,12 @@ def filter_points_by_cuboids(
 
     Returns:
         Tuple of:
-        1. numpy array of shape (n_points, 3) - points outside the cuboids
-        2. numpy array of shape (n_points, 3) - points inside the cuboids
+        1. numpy array of shape (n_points, 3) - outside cuboids points mask
+        2. numpy array of shape (n_points, 3) - inside cuboids points mask
     """
     inside_mask = np.zeros(points.shape[0], dtype=bool)
     for cuboid in cuboids:
         copied_cuboid = cuboid.copy()
         copied_cuboid.apply_scale(1.05)
         inside_mask = np.logical_or(inside_mask, copied_cuboid.contains(points))
-    return points[~inside_mask], points[inside_mask]
+    return ~inside_mask, inside_mask

@@ -23,6 +23,8 @@ import utils
 
 import logging
 
+from collections import defaultdict
+
 
 def load_json(path: Path) -> tp.Any:
     with open(path, 'r') as file:
@@ -103,72 +105,128 @@ class PandaSetScene(Scene):
             )
         return result
 
-    def _load_frames(self) -> tp.List[FrameData]:
-        result: tp.List[FrameData] = []
+    def _load_frame(self, camera_name: str, moment_id) -> FrameData:
+        camera_path = self.scene_path / 'camera' / camera_name
+        poses = load_json(camera_path / 'poses.json')
 
-        for camera_data in self.cameras:
-            camera_path = self.scene_path / 'camera' / camera_data.name
-            images = camera_path.glob('*.jpg')
-            poses = load_json(camera_path / 'poses.json')
+        if len(poses) != self.moments_count:
+            raise RuntimeError("Number of pose in {} must be equal to {}!".format(
+                (camera_path / 'poses.json').absolute(),
+                self.moments_count)
+            )
 
-            if len(poses) != self.moments_count:
-                raise RuntimeError("Number of pose in {} must be equal to {}!".format(
-                    (camera_path / 'poses.json').absolute(),
-                    self.moments_count)
-                )
+        image_path = camera_path / f'{moment_id:02d}.jpg'
 
-            for moment_id in range(self.moments_count):
-                image_path = camera_path / f'{moment_id:02d}.jpg'
+        if not image_path.exists():
+            raise RuntimeError("Could not find image in {}".format(image_path.absolute()))
 
-                if not image_path.exists():
-                    raise RuntimeError("Could not find image in {}".format(image_path.absolute()))
+        image_pose = poses[moment_id]
 
-                image_pose = poses[moment_id]
+        position = image_pose['position']
+        translation = np.array([
+            position[key] for key in ['x', 'y', 'z']
+        ])
 
-                position = image_pose['position']
-                translation = np.array([
-                    position[key] for key in ['x', 'y', 'z']
-                ])
+        heading = image_pose['heading']
+        rotation = np.array([
+            heading[key] for key in ['x', 'y', 'z', 'w']
+        ])
 
-                heading = image_pose['heading']
-                rotation = np.array([
-                    heading[key] for key in ['x', 'y', 'z', 'w']
-                ])
+        cam_from_world = pycolmap.Rigid3d(
+            translation=translation,
+            rotation=rotation,
+        ).inverse()
 
-                cam_from_world = pycolmap.Rigid3d(
-                    translation=translation,
-                    rotation=rotation,
-                ).inverse()
+        return FrameData(
+            pose=cam_from_world,
+            camera_path=camera_path,
+            moment_id=moment_id,
+        )
 
-                result.append(FrameData(
-                    pose=cam_from_world,
-                    camera_name=camera_data.name,
-                    image_path=image_path,
-                ))
-        return result
+    def _save_image_mask(self, frame: FrameData, image_mask: np.ndarray) -> None:
+        image_mask = (image_mask * 255).astype(np.uint8)
+        mask_image = PIL.Image.fromarray(image_mask)
+        save_path = self.masks_output_path / (frame.image_name + ".png")
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        mask_image.save(save_path)
 
-    def __init__(self, scene_path: Path | str) -> None:
-        self.scene_path = scene_path
-        if isinstance(scene_path, str):
-            self.scene_path = Path(scene_path)
+    def __init__(self, scene_path: Path | str, masks_output_path: tp.Optional[Path | str] = None) -> None:
+        self.scene_path = Path(scene_path)
+
+        if masks_output_path is not None:
+            self.masks_output_path = Path(masks_output_path)
+            self.masks_enabled = True
+        else:
+            self.masks_output_path = None
+            self.masks_enabled = False
 
         self.moments_count = self._load_moments_count()
-
         self.cameras = self._load_cameras()
-        self.frames = self._load_frames()
-
+        self.frames: tp.List[FrameData] = []
         self.points: tp.Optional[np.ndarray] = None
 
         for moment_id in range(self.moments_count):
             current_cuboids = self._load_cuboids(moment_id)
             current_points = self._load_points(moment_id)
+            current_frames: tp.List[tp.Tuple[FrameData, CameraData]] = []
 
-            points_inside, points_outside = utils.filter_points_by_cuboids(current_points, current_cuboids, scale=1.05)
+            for camera_data in self.cameras:
+                frame = self._load_frame(
+                    camera_name=camera_data.name,
+                    moment_id=moment_id
+                )
+
+                current_frames.append((
+                    frame,
+                    camera_data
+                ))
+                self.frames.append(frame)
+
+            if self.masks_enabled:
+                outside_cuboids_mask = np.ones((current_points.shape[0],), dtype=np.bool)
+                for frame, camera_data in current_frames:
+                    # create fake image for calculation project points
+                    fake_reconstruction = pycolmap.Reconstruction()
+                    fake_reconstruction.add_camera(
+                        camera_data.build(0)
+                    )
+                    fake_reconstruction.add_image(
+                        frame.build(0, 0)
+                    )
+
+                    image = fake_reconstruction.images[0]
+                    image_mask = np.zeros((camera_data.height, camera_data.width), dtype=np.uint8)
+
+                    projected_points, before_camera_mask = utils.vectorized_project_points(
+                        current_points,
+                        image,
+                    )
+
+                    for cuboid in current_cuboids:
+                        cuboid.apply_scale(scaling=1.05)
+
+                        in_cuboid_mask = cuboid.contains(current_points)
+
+                        utils.mark_dynamic_object_on_mask(
+                            projected_points[np.logical_and(before_camera_mask, in_cuboid_mask)],
+                            image_mask
+                        )
+
+                        print(np.logical_and(before_camera_mask, in_cuboid_mask).sum())
+
+                        outside_cuboids_mask = np.logical_and(outside_cuboids_mask, ~in_cuboid_mask)
+
+                    self._save_image_mask(frame, image_mask)
+            else:  # if masks is disabled
+                outside_cuboids_mask, inside_cuboids_mask = utils.filter_points_by_cuboids(
+                    current_points,
+                    current_cuboids
+                )
 
             if self.points is None:
-                self.points = points_outside
+                self.points = current_points[outside_cuboids_mask]
             else:
-                self.points = np.concatenate((self.points, points_outside), axis=0)
+                self.points = np.concatenate((self.points, current_points[outside_cuboids_mask]), axis=0)
 
 
 # class PandaSetDataset(Dataset):
@@ -179,14 +237,3 @@ class PandaSetScene(Scene):
 #     def __getitem__(self, idx) -> PandaSetScene:
 #         # TODO: return loaded scene by index
 #         pass
-
-
-result = PandaSetScene(scene_path=Path('/Users/kamil/Desktop/sem/data/001'))
-
-print(len(result.frames), result.frames[0])
-
-print(len(result.points), result.points[0])
-
-print(result.cameras)
-
-print(result.moments_count)
