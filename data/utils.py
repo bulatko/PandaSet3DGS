@@ -1,9 +1,12 @@
 import typing
 import typing as tp
+from typing import Tuple, Any
+
 import numpy as np
 import pycolmap
 
 import trimesh
+from numpy import ndarray, dtype
 
 
 def vectorized_project_points(points: np.ndarray, image: pycolmap.Image) -> tp.Tuple[np.ndarray, np.ndarray]:
@@ -177,3 +180,29 @@ def mark_dynamic_object_on_mask(points2d: np.ndarray, output_mask: np.ndarray) -
 
     """
     raise NotImplementedError
+
+
+def filter_points_by_cuboids(
+        points: np.ndarray,
+        cuboids: tp.List[trimesh.base.Trimesh],
+        scale: float = 1.05
+) -> tp.Tuple[np.ndarray, np.ndarray]:
+    """
+    Dividing points by cuboids
+
+    Args:
+        points: numpy array of shape (n_points, 3)
+        cuboids: list of cuboids
+        scale: scale size of cuboids scaling
+
+    Returns:
+        Tuple of:
+        1. numpy array of shape (n_points, 3) - points outside the cuboids
+        2. numpy array of shape (n_points, 3) - points inside the cuboids
+    """
+    inside_mask = np.zeros(points.shape[0], dtype=bool)
+    for cuboid in cuboids:
+        copied_cuboid = cuboid.copy()
+        copied_cuboid.apply_scale(1.05)
+        inside_mask = np.logical_or(inside_mask, copied_cuboid.contains(points))
+    return points[~inside_mask], points[inside_mask]
