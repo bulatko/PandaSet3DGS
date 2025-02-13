@@ -1,13 +1,13 @@
-from .base import Scene, Dataset, PointCloud, Frame
-from pandaset import PandaSet, Scene as PSScene
-
+from base import Scene, Dataset
+from pandaset import DataSet
+from pandaset.sequence import Sequence
 
 
 
 class PandaSetScene(Scene):
-    def __init__(self, scene: PSScene):
+    def __init__(self, sequence: Sequence):
         # TODO: define scene
-        self.scene = scene
+        self.sequence = sequence
 
     def filter_points(self):
         # TODO: filter points by mask
@@ -24,7 +24,7 @@ class PandaSetScene(Scene):
 
 class PandaSetDataset(Dataset):
     def __init__(self, path: str):
-        self.loader = PandaSet(path)
+        self.loader = DataSet(path)
         self.data = self.loader.scenes
     
     def __getitem__(self, idx) -> PandaSetScene:

@@ -3,9 +3,8 @@ import numpy as np
 import cv2
 from pathlib import Path
 from typing import List
-from pycolmap import SceneReconstructor
+from pycolmap import ReconstructionManager
 from pycolmap import Camera
-
 
     
 
@@ -28,7 +27,7 @@ class Scene(ABC):
         frames = self.frames
         cameras = self.cameras
         
-        self.reconstructor = SceneReconstructor()
+        self.reconstructor = Reconstruction()
         
     def export(self, path: str) -> None:
         # TODO: export data to colmap format
