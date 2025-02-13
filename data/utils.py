@@ -1,6 +1,9 @@
+import typing
 import typing as tp
 import numpy as np
 import pycolmap
+
+import trimesh
 
 
 def vectorized_project_points(points: np.ndarray, image: pycolmap.Image) -> tp.Tuple[np.ndarray, np.ndarray]:
@@ -133,3 +136,44 @@ def vectorized_getting_points3d_colors(
     points_colors, in_image_mask = vectorized_getting_points2d_colors(points2d, image_colores, image_mask)
 
     return points_colors, np.logical_and(before_camera_mask, in_image_mask)
+
+
+def get_cuboid_trimesh(
+        size: np.ndarray,
+        translation: tp.Optional[np.array] = None,
+        z_axis_rotation: float = 0,
+) -> trimesh.base.Trimesh:
+    """
+    Creates Trimesh object from cuboid
+
+    Args:
+        size: numpy array of shape (3,) representing the size along axises
+        translation: numpy array of shape (3,) representing the shift cuboid center
+        z_axis_rotation: a float representing the rotation angle through z axis
+
+    Returns:
+        Cuboid kept in a Trimesh object
+    """
+    cuboid = trimesh.primitives.Box(extents=size.astype(np.float64))
+    rotation_matrix = trimesh.transformations.rotation_matrix(
+        z_axis_rotation,
+        [0, 0, 1]
+    )
+    translation_matrix = trimesh.transformations.translation_matrix(
+        translation.astype(np.float64)
+    )
+    homogeneous_matrix = trimesh.transformations.concatenate_matrices(rotation_matrix, translation_matrix)
+    cuboid.apply_transform(homogeneous_matrix)
+    return cuboid
+
+
+def mark_dynamic_object_on_mask(points2d: np.ndarray, output_mask: np.ndarray) -> None:
+    """
+    Marking dynamic object on an output_mask
+
+    Args:
+        points2d: numpy array of shape (n_points, 2), which contains projected on image float points of dynamic object
+        output_mask: numpy array of shape (image_height, image_width), place to be written mask
+
+    """
+    raise NotImplementedError
