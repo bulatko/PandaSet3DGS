@@ -1,4 +1,4 @@
-from base import Scene, Dataset, CameraData, FrameData
+from base import Scene, CameraData, FrameData
 from pandaset import DataSet
 from pandaset.sequence import Sequence
 import numpy as np
@@ -6,6 +6,7 @@ import numpy as np
 import pycolmap
 
 import json
+from scipy.spatial import KDTree
 
 import PIL
 
@@ -47,7 +48,7 @@ class PandaSetScene(Scene):
         points_df = load_pickle(self.scene_path / 'lidar' / f'{moment_id:02d}.pkl')
         return points_df[['x', 'y', 'z']].to_numpy(dtype=np.float64)
 
-    def _load_cuboids(self, moment_id: int) -> tp.List[trimesh.Trimesh]:
+    def _load_cuboids(self, moment_id: int, scale: float) -> tp.List[trimesh.Trimesh]:
         """
         Loading all cuboids, which contain a dynamic objects in given moment
 
@@ -65,7 +66,7 @@ class PandaSetScene(Scene):
             cuboid_translation = cuboid_row[['position.x', 'position.y', 'position.z']].to_numpy(dtype=np.float64)
             cuboid_rotation = cuboid_row['yaw']
             cuboid = utils.get_cuboid_trimesh(
-                size=cuboid_size,
+                size=cuboid_size * scale,
                 translation=cuboid_translation,
                 z_axis_rotation=cuboid_rotation
             )
@@ -143,14 +144,34 @@ class PandaSetScene(Scene):
             moment_id=moment_id,
         )
 
+    def _get_mask_path(self, frame: FrameData) -> Path:
+        return self.masks_output_path / (frame.image_name + ".png")
+
     def _save_image_mask(self, frame: FrameData, image_mask: np.ndarray) -> None:
         image_mask = (image_mask * 255).astype(np.uint8)
         mask_image = PIL.Image.fromarray(image_mask)
-        save_path = self.masks_output_path / (frame.image_name + ".png")
+        save_path = self._get_mask_path(frame)
         save_path.parent.mkdir(parents=True, exist_ok=True)
         mask_image.save(save_path)
 
-    def __init__(self, scene_path: Path | str, masks_output_path: tp.Optional[Path | str] = None) -> None:
+    def _zip_points(self, radius: float) -> None:
+        tree = KDTree(self.points)
+        keep_mask = np.ones(len(self.points), dtype=bool)
+
+        for i in range(len(self.points)):
+            if keep_mask[i]:
+                neighbors = tree.query_ball_point(self.points[i], radius)
+                keep_mask[neighbors] = False
+                keep_mask[i] = True
+
+        self.points = self.points[keep_mask]
+
+    def __init__(self,
+                 scene_path: Path | str,
+                 masks_output_path: tp.Optional[Path | str] = None,
+                 cuboids_scale: float = 1.05,
+                 points_radius: float = 0.1,
+                 ) -> None:
         self.scene_path = Path(scene_path)
 
         if masks_output_path is not None:
@@ -166,8 +187,9 @@ class PandaSetScene(Scene):
         self.points: tp.Optional[np.ndarray] = None
 
         for moment_id in range(self.moments_count):
-            current_cuboids = self._load_cuboids(moment_id)
+            current_cuboids = self._load_cuboids(moment_id, scale=cuboids_scale)
             current_points = self._load_points(moment_id)
+
             current_frames: tp.List[tp.Tuple[FrameData, CameraData]] = []
 
             for camera_data in self.cameras:
@@ -175,7 +197,6 @@ class PandaSetScene(Scene):
                     camera_name=camera_data.name,
                     moment_id=moment_id
                 )
-
                 current_frames.append((
                     frame,
                     camera_data
@@ -184,6 +205,7 @@ class PandaSetScene(Scene):
 
             if self.masks_enabled:
                 outside_cuboids_mask = np.ones((current_points.shape[0],), dtype=np.bool)
+
                 for frame, camera_data in current_frames:
                     # create fake image for calculation project points
                     fake_reconstruction = pycolmap.Reconstruction()
@@ -195,24 +217,32 @@ class PandaSetScene(Scene):
                     )
 
                     image = fake_reconstruction.images[0]
-                    image_mask = np.zeros((camera_data.height, camera_data.width), dtype=np.uint8)
+
+                    # mask of image
+                    image_mask = np.ones((camera_data.height, camera_data.width), dtype=np.uint8)
 
                     projected_points, before_camera_mask = utils.vectorized_project_points(
                         current_points,
                         image,
                     )
 
-                    for cuboid in current_cuboids:
-                        cuboid.apply_scale(scaling=1.05)
+                    rounded = projected_points.round().astype(np.int64)
 
+                    in_image_mask = np.logical_and.reduce([
+                        before_camera_mask,
+                        rounded[:, 0] >= 0,
+                        rounded[:, 0] < camera_data.width,
+                        rounded[:, 1] >= 0,
+                        rounded[:, 1] < camera_data.height
+                    ])
+
+                    for cuboid in current_cuboids:
                         in_cuboid_mask = cuboid.contains(current_points)
 
                         utils.mark_dynamic_object_on_mask(
-                            projected_points[np.logical_and(before_camera_mask, in_cuboid_mask)],
+                            rounded[np.logical_and(in_image_mask, in_cuboid_mask)],
                             image_mask
                         )
-
-                        print(np.logical_and(before_camera_mask, in_cuboid_mask).sum())
 
                         outside_cuboids_mask = np.logical_and(outside_cuboids_mask, ~in_cuboid_mask)
 
@@ -228,12 +258,4 @@ class PandaSetScene(Scene):
             else:
                 self.points = np.concatenate((self.points, current_points[outside_cuboids_mask]), axis=0)
 
-
-# class PandaSetDataset(Dataset):
-#     def __init__(self, path: str):
-#         self.loader = DataSet(path)
-#         self.data = self.loader.scenes
-#
-#     def __getitem__(self, idx) -> PandaSetScene:
-#         # TODO: return loaded scene by index
-#         pass
+        self._zip_points(points_radius)

@@ -10,6 +10,7 @@ from numpy import ndarray, dtype
 
 import cv2
 
+import scipy
 from scipy.spatial import ConvexHull
 
 
@@ -169,7 +170,7 @@ def get_cuboid_trimesh(
     translation_matrix = trimesh.transformations.translation_matrix(
         translation.astype(np.float64)
     )
-    homogeneous_matrix = trimesh.transformations.concatenate_matrices(rotation_matrix, translation_matrix)
+    homogeneous_matrix = trimesh.transformations.concatenate_matrices(translation_matrix, rotation_matrix)
     cuboid.apply_transform(homogeneous_matrix)
     return cuboid
 
@@ -184,17 +185,21 @@ def mark_dynamic_object_on_mask(points2d: np.ndarray, output_mask: np.ndarray) -
 
     """
     assert output_mask.dtype == np.uint8
+
+    if len(points2d) == 0:
+        return
+
     try:
         hull = ConvexHull(points2d)
-        cv2.fillPoly(output_mask, [points2d[hull.vertices]], 1)
-    except:
+        cv2.fillPoly(output_mask, [points2d[hull.vertices]], 0)
+    except scipy.spatial._qhull.QhullError:
         pass
 
 
 def filter_points_by_cuboids(
         points: np.ndarray,
         cuboids: tp.List[trimesh.base.Trimesh],
-        scale: float = 1.05
+        cuboid_scale: float = 1.05
 ) -> tp.Tuple[np.ndarray, np.ndarray]:
     """
     Dividing points by cuboids
@@ -202,7 +207,7 @@ def filter_points_by_cuboids(
     Args:
         points: numpy array of shape (n_points, 3)
         cuboids: list of cuboids
-        scale: scale size of cuboids scaling
+        cuboid_scale: scale size of cuboids scaling
 
     Returns:
         Tuple of:
@@ -212,6 +217,6 @@ def filter_points_by_cuboids(
     inside_mask = np.zeros(points.shape[0], dtype=bool)
     for cuboid in cuboids:
         copied_cuboid = cuboid.copy()
-        copied_cuboid.apply_scale(1.05)
+        copied_cuboid.apply_scale(cuboid_scale)
         inside_mask = np.logical_or(inside_mask, copied_cuboid.contains(points))
     return ~inside_mask, inside_mask

@@ -1,4 +1,6 @@
 from abc import ABC, abstractmethod
+
+import cv2
 import numpy as np
 # import cv2
 from pathlib import Path
@@ -11,6 +13,7 @@ from pycolmap import Camera
 
 from dataclasses import dataclass
 
+import utils
 import typing as tp
 
 
@@ -69,9 +72,15 @@ class Scene(ABC):
     cameras: tp.List[CameraData] = None
     points: np.ndarray = None
     frames: tp.List[FrameData] = None
+    masks_enabled: bool
+    masks_output_path: tp.Optional[Path]
 
     @abstractmethod
     def __init__(self, *args, **kwargs) -> None:
+        pass
+
+    @abstractmethod
+    def _get_mask_path(self, frame: FrameData) -> Path:
         pass
 
     def make_reconstruction(self):
@@ -92,28 +101,47 @@ class Scene(ABC):
             camera_id = cameras_by_names[frame_data.camera_name]
             self.reconstruction.add_image(frame_data.build(image_id, camera_id))
 
+        points_color_sum = np.zeros((points.shape[0], 3), dtype=np.int32)
+        points_color_cnt = np.zeros((points.shape[0], ), dtype=np.int32)
 
+        for image_id, frame_data in enumerate(frames):
+            print(image_id)
+            image = self.reconstruction.images[image_id]
+            image_colors = cv2.imread(str(frame_data.image_path.absolute()), cv2.IMREAD_COLOR_RGB)
 
-    def export(self, path: str, as_text: bool) -> None:
-        if isinstance(path, str):
-            path = Path(path)
+            binary_mask = None
+
+            if self.masks_enabled:
+                image_mask = cv2.imread(str(self._get_mask_path(frame_data)), cv2.IMREAD_GRAYSCALE)
+                _, binary_mask = cv2.threshold(image_mask, 127, 255, cv2.THRESH_BINARY)
+                binary_mask = binary_mask // 255
+                binary_mask = binary_mask.astype(np.uint8)
+
+            points_colors, points_mask = utils.vectorized_getting_points3d_colors(
+                points3d=self.points,
+                image=image,
+                image_colores=image_colors,
+                image_mask=binary_mask
+            )
+
+            points_color_sum[points_mask] += points_colors[points_mask]
+            points_color_cnt[points_mask] += 1
+
+        points_color_cnt = np.maximum(points_color_cnt, 1)
+        points_colors = points_color_sum // points_color_cnt[..., np.newaxis]
+
+        for point_id, point in enumerate(self.points):
+            self.reconstruction.add_point3D(
+                xyz=point,
+                color=points_colors[point_id].astype(dtype=np.uint8),
+                track=pycolmap.Track()
+            )
+
+    def export(self, path: str | Path, as_text: bool) -> None:
+        if isinstance(path, Path):
+            path = str(path.absolute())
 
         if as_text:
             self.reconstruction.write_text(path)
         else:
             self.reconstruction.write(path)
-
-
-class Dataset(ABC):
-    @abstractmethod
-    def __init__(self, *args, **kwargs) -> None:
-        pass
-
-    @property
-    def scenes(self) -> List[Scene]:
-        return self.data
-    def __len__(self) -> int:
-        return len(self.data)
-    @abstractmethod
-    def __getitem__(self, idx) -> Scene:
-        return self.data[idx]
